@@ -1,93 +1,78 @@
 
+import os
 import gradio as gr
-from transformers import pipeline
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
-sentiment_model = pipeline(
-    "sentiment-analysis",
-    model="cardiffnlp/twitter-roberta-base-sentiment-latest"
-)
-
-neutral_phrases = [
-    "okay", "ok", "just ok", "just okay",
-    "average", "normal", "nothing special",
-    "so so", "it's fine", "it is fine"
-]
+analyzer = SentimentIntensityAnalyzer()
 
 def analyze_sentiment(text):
     if not text or not text.strip():
-        return "Please enter some text.", 0
+        return "Please enter some text.", "N/A"
 
-    text = text.strip()
+    score = analyzer.polarity_scores(text)["compound"]
 
-    if text.lower() in neutral_phrases:
-        return "NEUTRAL (Rule-based)", 0
+    if score >= 0.05:
+        sentiment = "Positive 😊"
+    elif score <= -0.05:
+        sentiment = "Negative 😞"
+    else:
+        sentiment = "Neutral 😐"
 
-    result = sentiment_model(text)[0]
-    label = result["label"].upper()
-    confidence = round(result["score"] * 100, 2)
+    return sentiment, round(score, 3)
 
-    return label, confidence
 
 def analyze_multiple(text):
     if not text.strip():
-        return [], "Please enter reviews."
+        return []
 
-    reviews = [r.strip() for r in text.split("\n") if r.strip()]
     results = []
-    counts = {"POSITIVE": 0, "NEGATIVE": 0, "NEUTRAL": 0}
+    for review in text.split("\n"):
+        if review.strip():
+            sentiment, score = analyze_sentiment(review)
+            results.append([review, sentiment, score])
 
-    for review in reviews:
-        label, confidence = analyze_sentiment(review)
-        sentiment = label.split()[0]
-        if sentiment in counts:
-            counts[sentiment] += 1
-        results.append([review, label, confidence])
+    return results
 
-    summary = (
-        f"Positive: {counts['POSITIVE']} | "
-        f"Negative: {counts['NEGATIVE']} | "
-        f"Neutral: {counts['NEUTRAL']}"
-    )
-
-    return results, summary
 
 with gr.Blocks(title="Sentiment Analysis AI") as app:
     gr.Markdown("# Sentiment Analysis AI")
     gr.Markdown("Analyze text and customer reviews using AI.")
 
     with gr.Tab("Single Text Analysis"):
-        input_text = gr.Textbox(
+        user_text = gr.Textbox(
             label="Enter your text",
-            lines=4,
             placeholder="Type your review here..."
         )
         analyze_btn = gr.Button("Analyze Sentiment")
-        output_label = gr.Textbox(label="Sentiment")
-        output_confidence = gr.Number(label="Confidence (%)")
+        result = gr.Textbox(label="Sentiment")
+        score = gr.Textbox(label="Compound Score")
 
         analyze_btn.click(
             analyze_sentiment,
-            inputs=input_text,
-            outputs=[output_label, output_confidence]
+            inputs=user_text,
+            outputs=[result, score]
         )
 
-    with gr.Tab("Multiple Reviews Analysis"):
-        reviews_input = gr.Textbox(
-            label="Enter reviews (one review per line)",
-            lines=8
+    with gr.Tab("Multiple Reviews"):
+        reviews = gr.Textbox(
+            label="Enter reviews (one per line)",
+            lines=6
         )
-        multiple_btn = gr.Button("Analyze Reviews")
-        results_table = gr.Dataframe(
-            headers=["Review", "Sentiment", "Confidence (%)"],
-            label="Analysis Results"
+        batch_btn = gr.Button("Analyze Reviews")
+        output = gr.Dataframe(
+            headers=["Review", "Sentiment", "Compound Score"],
+            interactive=False
         )
-        summary_output = gr.Textbox(label="Summary")
 
-        multiple_btn.click(
+        batch_btn.click(
             analyze_multiple,
-            inputs=reviews_input,
-            outputs=[results_table, summary_output]
+            inputs=reviews,
+            outputs=output
         )
 
-if __name__ == "__main__":
-   app.launch(server_name="0.0.0.0", server_port=10000)
+
+app.launch(
+    server_name="0.0.0.0",
+    server_port=int(os.environ.get("PORT", 10000)),
+    share=False
+)
